@@ -8,7 +8,9 @@ Public traffic cameras on the CloudTAK map. Find a camera in the side panel or o
 
 - **Side panel** (main menu → Cam Depot): pick one or more states and Canadian provinces, show or hide the cameras, search by name, "on screen only", and a picture or play button per camera with its provider.
 - **Sync** (the refresh button): asks the server to check the camera catalog for changes and reloads the lists.
-- **Camera markers** on the map: real CoT markers of the camera type `b-m-p-s-p-loc` with CloudTAK's built-in camera icon (same as a TAK camera feed), coloured green = live video, blue = picture only (gray = offline arrives with the catalog status feed, next step). Click one for CloudTAK's radial menu; its play button opens the camera.
+- **Filters** (map and list): show every camera, live video only, picture only or offline only; one provider; one or more counties.
+- **Favorites:** a star on each camera; "Favorites only" lists them across every state, picked or not. Saved in the browser.
+- **Camera markers** on the map: real CoT markers of the camera type `b-m-p-s-p-loc` with CloudTAK's built-in camera icon (same as a TAK camera feed), coloured green = live video, blue = picture only, gray = offline (from the catalog's status feed). Click one for CloudTAK's radial menu; its play button opens the camera.
 - **Pictures** open in CloudTAK's video pane (from the panel or the radial play button) and refresh every 15 seconds (the most some providers allow).
 - **Live video** plays through a temporary CloudTAK video lease.
 - The markers are local to each browser: added like CoT received from the server, never archived, so CloudTAK never sends them to TAK Server. They carry a 15-minute stale time and are refreshed every 5 minutes.
@@ -22,6 +24,7 @@ Every state and province comes from the Cam Depot catalog by TAKWERX (`mapdepot.
 Catalog rules (TAKWERX's terms): the catalog is read at most once a day with its ETag, or on Sync (at most once per 10 minutes per server); each state's file is downloaded only when someone picks that state and kept until the catalog changes; every host and stream address comes from the catalog; if the catalog's format isn't one this plugin knows, the catalog is skipped quietly. Credit shown in the panel and on each camera: "Camera data: Cam Depot (TAKWERX)", the camera's provider, and the provider's attribution and license where the catalog gives one.
 
 - **Video** uses the stream link the catalog gives (some go through TAKWERX's relay, which handles expiring tokens). A stream is opened only when someone picks a camera, and CloudTAK closes it when the video pane closes. MJPEG links can't be played by CloudTAK, so those cameras show as picture only.
+- **Camera status** (online/offline): each state's status file from the catalog, with the catalog's live status feed on top. The server polls that feed every 15 seconds (only the changes come back), and only while some browser is showing cameras: it stops a minute after the last one stops asking. Browsers ask this server every 15 seconds, only while cameras are on the map and the tab is in view.
 - **Pictures** without their own link (mostly ALERT West cameras) come from the catalog's live picture lookup through `/api/cam-depot/still/<camera>.jpg`, at most one fetch per camera per 15 seconds for the whole server. That route has no login (the video pane loads it as an image) and only answers for cameras in the catalog.
 
 ## Requirements

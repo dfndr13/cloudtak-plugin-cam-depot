@@ -39,7 +39,21 @@ type StateCameras = {
     cameras: Camera[];
     providers: ProviderCredit[];
     loadedAt: number;
+    /** Status version the server sent with this list */
+    version: number;
 };
+
+/** What is kept of a favorite camera, so favorites work across states */
+export type Favorite = {
+    id: string;
+    name: string;
+    state: string;
+    provider: string;
+    lat: number;
+    lon: number;
+};
+
+export type Kind = 'all' | 'video' | 'still' | 'offline';
 
 const PREFS_KEY = 'cam-depot:prefs';
 const RELOAD_MS = 5 * 60 * 1000;
@@ -48,16 +62,36 @@ type Prefs = {
     visible: boolean;
     states: string[];
     onScreen: boolean;
+    kind: Kind;
+    provider: string;
+    /** `County|ST` keys; empty = every county */
+    counties: string[];
+    favorites: Favorite[];
+    favoritesOnly: boolean;
 };
 
+const KINDS: Kind[] = ['all', 'video', 'still', 'offline'];
+
 function loadPrefs(): Prefs {
-    const prefs: Prefs = { visible: true, states: ['KS'], onScreen: false };
+    const prefs: Prefs = {
+        visible: true, states: ['KS'], onScreen: false,
+        kind: 'all', provider: '', counties: [], favorites: [], favoritesOnly: false,
+    };
     try {
         const raw = localStorage.getItem(PREFS_KEY);
         if (raw) {
             const saved = JSON.parse(raw) as Partial<Prefs> & { state?: string };
             if (typeof saved.visible === 'boolean') prefs.visible = saved.visible;
             if (typeof saved.onScreen === 'boolean') prefs.onScreen = saved.onScreen;
+            if (typeof saved.favoritesOnly === 'boolean') prefs.favoritesOnly = saved.favoritesOnly;
+            if (typeof saved.kind === 'string' && KINDS.includes(saved.kind)) prefs.kind = saved.kind;
+            if (typeof saved.provider === 'string') prefs.provider = saved.provider;
+            if (Array.isArray(saved.counties)) prefs.counties = saved.counties.filter((s) => typeof s === 'string');
+            if (Array.isArray(saved.favorites)) {
+                prefs.favorites = saved.favorites.filter((f): f is Favorite => !!f && typeof f.id === 'string'
+                    && typeof f.name === 'string' && typeof f.state === 'string'
+                    && Number.isFinite(f.lat) && Number.isFinite(f.lon));
+            }
             if (Array.isArray(saved.states)) prefs.states = saved.states.filter((s) => typeof s === 'string');
             // Milestone 1 kept a single state
             else if (typeof saved.state === 'string') prefs.states = [saved.state];
@@ -87,16 +121,81 @@ export function savePrefs(): void {
             visible: state.visible,
             states: state.states,
             onScreen: state.onScreen,
+            kind: state.kind,
+            provider: state.provider,
+            counties: state.counties,
+            favorites: state.favorites,
+            favoritesOnly: state.favoritesOnly,
         }));
     } catch { /* storage unavailable */ }
 }
 
 const listeners = new Set<() => void>();
 
-/** Called whenever the camera list changes (the map layer redraws) */
+/** Called whenever the camera list or the filters change (the map layer redraws) */
 export function onCamerasChanged(fn: () => void): () => void {
     listeners.add(fn);
     return () => listeners.delete(fn);
+}
+
+export function camerasChanged(): void {
+    for (const fn of listeners) fn();
+}
+
+const statusListeners = new Set<(cameras: Camera[]) => void>();
+
+/** Called with the cameras whose online/offline status changed */
+export function onStatusChanged(fn: (cameras: Camera[]) => void): () => void {
+    statusListeners.add(fn);
+    return () => statusListeners.delete(fn);
+}
+
+export function countyKey(camera: Camera): string {
+    return `${camera.county}|${camera.state}`;
+}
+
+/** The type / provider / county filters (favorites-only and search are list-only) */
+export function passesFilter(camera: Camera): boolean {
+    if (state.kind === 'video' && !(camera.online && camera.video)) return false;
+    if (state.kind === 'still' && !(camera.online && !camera.video)) return false;
+    if (state.kind === 'offline' && camera.online) return false;
+    if (state.provider && camera.provider !== state.provider) return false;
+    if (state.counties.length && !state.counties.includes(countyKey(camera))) return false;
+    return true;
+}
+
+export function isFavorite(id: string): boolean {
+    return state.favorites.some((f) => f.id === id);
+}
+
+export function toggleFavorite(camera: Camera): void {
+    if (isFavorite(camera.id)) {
+        state.favorites = state.favorites.filter((f) => f.id !== camera.id);
+    } else {
+        state.favorites = [...state.favorites, {
+            id: camera.id, name: camera.name, state: camera.state,
+            provider: camera.provider, lat: camera.lat, lon: camera.lon,
+        }];
+    }
+    savePrefs();
+}
+
+/**
+ * The current camera behind a favorite. Its state may not be picked, so the
+ * list is fetched then (and kept briefly): stream links can change, so a saved
+ * copy is never used to open a camera.
+ */
+const favoriteStates = new Map<string, StateCameras>();
+
+export async function cameraForFavorite(fav: Favorite): Promise<Camera | undefined> {
+    const shown = state.cameras.find((c) => c.id === fav.id);
+    if (shown) return shown;
+    let loaded = favoriteStates.get(fav.state);
+    if (!loaded || Date.now() - loaded.loadedAt > RELOAD_MS) {
+        loaded = await fetchState(fav.state);
+        favoriteStates.set(fav.state, loaded);
+    }
+    return loaded.cameras.find((c) => c.id === fav.id);
 }
 
 export async function loadStates(): Promise<void> {
@@ -119,12 +218,14 @@ async function fetchState(st: string): Promise<StateCameras> {
     const url = stdurl('/api/cam-depot/cameras');
     url.searchParams.set('state', st);
     const body = await std(url) as {
+        version: number;
         providers: ProviderCredit[];
         items: Array<Omit<Camera, 'state'>>;
     };
     return {
         providers: body.providers,
         loadedAt: Date.now(),
+        version: body.version,
         cameras: body.items.map((c) => ({
             ...c,
             // The server may hand back a path on itself (live pictures)
@@ -210,6 +311,44 @@ export async function sync(): Promise<void> {
         state.error = err instanceof Error ? err.message : String(err);
     } finally {
         state.syncing = false;
+    }
+}
+
+/**
+ * Status poll (every 15 s from the plugin, only while cameras are on the map):
+ * ask the server which cameras are offline, per picked state, and pass on only
+ * the cameras that changed.
+ */
+export async function refreshStatus(): Promise<void> {
+    if (state.loading) return;
+    const changed: Camera[] = [];
+
+    for (const st of state.states) {
+        const loaded = perState.get(st);
+        if (!loaded) continue;
+        try {
+            const url = stdurl('/api/cam-depot/status');
+            url.searchParams.set('state', st);
+            url.searchParams.set('version', String(loaded.version));
+            const body = await std(url) as { version: number; changed: boolean; offline: string[] };
+            loaded.version = body.version;
+            if (!body.changed) continue;
+
+            const offline = new Set(body.offline);
+            for (const camera of loaded.cameras) {
+                const online = !offline.has(camera.id);
+                if (camera.online !== online) {
+                    camera.online = online;
+                    changed.push(camera);
+                }
+            }
+        } catch { /* try again on the next poll */ }
+    }
+
+    if (changed.length) {
+        // The list holds the same objects; reassign so the panel recounts
+        state.cameras = [...state.cameras];
+        for (const fn of statusListeners) fn(changed);
     }
 }
 

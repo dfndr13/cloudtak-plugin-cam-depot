@@ -97,6 +97,115 @@
                     label='On screen only'
                 />
 
+                <TablerToggle
+                    v-model='state.favoritesOnly'
+                    :label='`Favorites only (${state.favorites.length})`'
+                />
+
+                <div
+                    v-if='!state.favoritesOnly'
+                    class='d-flex flex-column gap-2'
+                >
+                    <div class='d-flex align-items-center gap-2'>
+                        <span class='form-label mb-0 cam-label'>Show</span>
+                        <select
+                            v-model='state.kind'
+                            class='form-select form-select-sm'
+                        >
+                            <option value='all'>
+                                Every camera
+                            </option>
+                            <option value='video'>
+                                Live video
+                            </option>
+                            <option value='still'>
+                                Picture only
+                            </option>
+                            <option value='offline'>
+                                Offline
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class='d-flex align-items-center gap-2'>
+                        <span class='form-label mb-0 cam-label'>Provider</span>
+                        <select
+                            v-model='state.provider'
+                            class='form-select form-select-sm'
+                        >
+                            <option value=''>
+                                All providers
+                            </option>
+                            <option
+                                v-for='p in providerOptions'
+                                :key='p.id'
+                                :value='p.id'
+                                v-text='`${p.id} (${p.count.toLocaleString()})`'
+                            />
+                        </select>
+                    </div>
+
+                    <div class='d-flex align-items-center gap-2'>
+                        <span class='form-label mb-0 cam-label'>Counties</span>
+                        <button
+                            type='button'
+                            class='btn btn-sm flex-grow-1 text-truncate justify-content-start'
+                            @click='pickingCounties = !pickingCounties'
+                        >
+                            <span
+                                class='text-truncate'
+                                v-text='countiesLabel'
+                            />
+                        </button>
+                    </div>
+
+                    <div
+                        v-if='pickingCounties'
+                        class='border rounded p-2 d-flex flex-column gap-1'
+                    >
+                        <TablerInput
+                            v-model='countyFilter'
+                            icon='search'
+                            placeholder='Find a county'
+                        />
+                        <div class='cam-place-list'>
+                            <label
+                                v-for='c in countyOptions'
+                                :key='c.key'
+                                class='form-check mb-0'
+                            >
+                                <input
+                                    class='form-check-input'
+                                    type='checkbox'
+                                    :checked='state.counties.includes(c.key)'
+                                    @change='toggleCounty(c.key)'
+                                >
+                                <span class='form-check-label'>
+                                    {{ c.label }}
+                                    <span class='text-secondary'>({{ c.count.toLocaleString() }})</span>
+                                </span>
+                            </label>
+                        </div>
+                        <div class='d-flex gap-2'>
+                            <button
+                                type='button'
+                                class='btn btn-sm flex-grow-1'
+                                :disabled='!state.counties.length'
+                                @click='state.counties = []'
+                            >
+                                All counties
+                            </button>
+                            <button
+                                type='button'
+                                class='btn btn-sm btn-primary flex-grow-1'
+                                @click='pickingCounties = false'
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div
                     v-if='state.syncNote'
                     class='small text-secondary'
@@ -114,6 +223,48 @@
                 v-if='state.error'
                 :err='new Error(state.error)'
             />
+            <template v-else-if='state.favoritesOnly'>
+                <TablerNone
+                    v-if='!favoriteRows.length'
+                    label='No favorites yet: tap the star on a camera'
+                    :create='false'
+                />
+                <div
+                    v-else
+                    class='list-group list-group-flush'
+                >
+                    <div
+                        v-for='fav in favoriteRows'
+                        :key='fav.id'
+                        class='list-group-item d-flex align-items-center gap-2 px-2 py-2 cursor-pointer hover'
+                        role='button'
+                        tabindex='0'
+                        @click='openFavorite(fav)'
+                        @keyup.enter='openFavorite(fav)'
+                    >
+                        <div class='flex-grow-1 text-truncate'>
+                            <div
+                                class='text-truncate'
+                                :title='fav.name'
+                                v-text='fav.name'
+                            />
+                            <div
+                                class='small text-secondary text-truncate'
+                                v-text='`${fav.provider}, ${fav.state}`'
+                            />
+                        </div>
+                        <TablerIconButton
+                            title='Remove from favorites'
+                            @click.stop='removeFavorite(fav.id)'
+                        >
+                            <IconStarFilled
+                                :size='20'
+                                class='text-yellow'
+                            />
+                        </TablerIconButton>
+                    </div>
+                </div>
+            </template>
             <TablerLoading
                 v-else-if='state.loading && !state.cameras.length'
                 desc='Loading cameras'
@@ -152,6 +303,21 @@
                         v-if='!cam.online'
                         class='small text-secondary'
                     >offline</span>
+                    <TablerIconButton
+                        :title='isFavorite(cam.id) ? "Remove from favorites" : "Add to favorites"'
+                        @click.stop='toggleFavorite(cam)'
+                    >
+                        <IconStarFilled
+                            v-if='isFavorite(cam.id)'
+                            :size='20'
+                            class='text-yellow'
+                        />
+                        <IconStar
+                            v-else
+                            :size='20'
+                            stroke='1'
+                        />
+                    </TablerIconButton>
                     <TablerIconButton
                         v-if='cam.still'
                         title='Show picture'
@@ -226,11 +392,14 @@ import {
     TablerRefreshButton,
     TablerToggle,
 } from '@tak-ps/vue-tabler';
-import { IconPhoto, IconPlayerPlay } from '@tabler/icons-vue';
+import { IconPhoto, IconPlayerPlay, IconStar, IconStarFilled } from '@tabler/icons-vue';
 import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
 import { useMapStore } from '../../src/stores/map.ts';
-import { state, loadCameras, savePrefs, sync } from './lib/state.ts';
-import type { Camera } from './lib/state.ts';
+import {
+    state, loadCameras, savePrefs, sync, passesFilter, countyKey, camerasChanged,
+    isFavorite, toggleFavorite, cameraForFavorite,
+} from './lib/state.ts';
+import type { Camera, Favorite } from './lib/state.ts';
 import { openCamera } from './lib/open.ts';
 import { syncCots } from './lib/cots.ts';
 
@@ -242,6 +411,64 @@ const mapStore = useMapStore();
 
 const filter = ref('');
 const picking = ref(false);
+const pickingCounties = ref(false);
+const countyFilter = ref('');
+
+const providerOptions = computed(() => {
+    const n = new Map<string, number>();
+    for (const c of state.cameras) n.set(c.provider, (n.get(c.provider) || 0) + 1);
+    // Keep a saved choice listed even when no picked state has it
+    if (state.provider && !n.has(state.provider)) n.set(state.provider, 0);
+    return [...n].map(([id, count]) => ({ id, count })).filter((p) => p.id).sort((a, b) => a.id.localeCompare(b.id));
+});
+
+const countyOptions = computed(() => {
+    const n = new Map<string, { key: string; label: string; count: number }>();
+    for (const c of state.cameras) {
+        if (!c.county) continue;
+        const key = countyKey(c);
+        const have = n.get(key);
+        if (have) have.count++;
+        else n.set(key, { key, label: state.states.length > 1 ? `${c.county}, ${c.state}` : c.county, count: 1 });
+    }
+    const words = countyFilter.value.toLowerCase().split(/\s+/).filter(Boolean);
+    return [...n.values()]
+        .filter((c) => state.counties.includes(c.key) || words.every((w) => c.label.toLowerCase().includes(w)))
+        .sort((a, b) => a.label.localeCompare(b.label));
+});
+
+const countiesLabel = computed(() => {
+    if (!state.counties.length) return 'All counties';
+    const names = state.counties.map((k) => k.split('|')[0]);
+    return names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ');
+});
+
+function toggleCounty(key: string): void {
+    state.counties = state.counties.includes(key) ? state.counties.filter((k) => k !== key) : [...state.counties, key];
+}
+
+const favoriteRows = computed<Favorite[]>(() => {
+    const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+    return state.favorites
+        .filter((f) => words.every((w) => f.name.toLowerCase().includes(w)))
+        .sort((a, b) => a.name.localeCompare(b.name));
+});
+
+function removeFavorite(id: string): void {
+    state.favorites = state.favorites.filter((f) => f.id !== id);
+    savePrefs();
+}
+
+async function openFavorite(fav: Favorite): Promise<void> {
+    mapStore.map.flyTo({ center: [fav.lon, fav.lat], zoom: Math.max(mapStore.map.getZoom(), 12) });
+    try {
+        const cam = await cameraForFavorite(fav);
+        if (cam) openCamera(pinia, cam);
+        else state.error = `${fav.name} is no longer in the camera catalog`;
+    } catch (err) {
+        state.error = err instanceof Error ? err.message : String(err);
+    }
+}
 const placeFilter = ref('');
 
 const pickedLabel = computed(() => {
@@ -297,6 +524,7 @@ const matched = computed<Camera[]>(() => {
     const box = state.onScreen ? bounds.value : null;
 
     return state.cameras.filter((c) => {
+        if (!passesFilter(c)) return false;
         if (box && (c.lon < box[0] || c.lon > box[2] || c.lat < box[1] || c.lat > box[3])) return false;
         const name = c.name.toLowerCase();
         return words.every((w) => name.includes(w));
@@ -317,6 +545,13 @@ watch(() => state.visible, async () => {
 });
 
 watch(() => state.onScreen, savePrefs);
+watch(() => state.favoritesOnly, savePrefs);
+
+// Filters change what is on the map too
+watch(() => [state.kind, state.provider, state.counties], () => {
+    savePrefs();
+    camerasChanged();
+});
 
 
 onMounted(async () => {
@@ -331,6 +566,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.cam-label {
+    min-width: 64px;
+}
+
 .cam-place-list {
     max-height: 260px;
     overflow-y: auto;

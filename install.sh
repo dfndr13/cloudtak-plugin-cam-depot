@@ -100,6 +100,7 @@ routes = {
     "GET /cam-depot/states": {"body": False, "query": False, "res": True},
     "GET /cam-depot/cameras": {"body": False, "query": True, "res": True},
     "POST /cam-depot/sync": {"body": False, "query": False, "res": True},
+    "GET /cam-depot/status": {"body": False, "query": True, "res": True},
     "GET /cam-depot/still/:camera.jpg": {"body": False, "query": False, "res": False},
 }
 # Routes of earlier versions of this plugin

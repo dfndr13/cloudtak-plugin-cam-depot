@@ -8,6 +8,8 @@
  * - GET  /cam-depot/states                 States and provinces in the catalog (logged-in users)
  * - GET  /cam-depot/cameras?state=KS       Camera list for one state (logged-in users)
  * - POST /cam-depot/sync                   Check the catalog for changes (logged-in users, rate-limited)
+ * - GET  /cam-depot/status?state=KS        Offline cameras of one state (logged-in users); keeps the
+ *                                          catalog status feed polled every 15 s while in use
  * - GET  /cam-depot/still/:camera.jpg      Current picture of a camera without its own picture
  *                                          link (no login: loaded by the video pane)
  *
@@ -54,6 +56,9 @@ const LIVE_STILL_MS = 15 * 1000;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const CATALOG_CREDIT = 'Camera data: Cam Depot (TAKWERX)';
+/** Status feed: no faster than every 15 s, and only while a browser is showing cameras */
+const STATUS_POLL_MS = 15 * 1000;
+const STATUS_IDLE_MS = 60 * 1000;
 
 const PLACE_NAMES: Record<string, string> = {
     AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado',
@@ -80,9 +85,11 @@ type Catalog = {
     checkedAt: number;
     base: URL;
     imageLive: URL | null;
+    /** Live status feed (online/offline), asked with ?since=<seq> */
+    dynamicBase: URL | null;
     mjpegBase: string;
     imageHost: string;
-    states: Map<string, { cameras: number; file: URL; images: URL | null }>;
+    states: Map<string, { cameras: number; file: URL; images: URL | null; dynamic: URL | null }>;
     providers: Map<string, Provider>;
 };
 
@@ -103,6 +110,8 @@ type CatalogCamera = {
 
 type StateFile = {
     generated: string;
+    /** Catalog ids marked offline in the state's status file (as of the publish) */
+    offline: Set<string>;
     cameras: CatalogCamera[];
     byId: Map<string, CatalogCamera>;
 };
@@ -160,21 +169,24 @@ function parseCatalog(body: unknown, etag: string): Catalog {
     const imageLive = safeHttps(o.image_live);
     const imageBase = safeHttps(o.image_base);
 
-    const states = new Map<string, { cameras: number; file: URL; images: URL | null }>();
+    const states = new Map<string, { cameras: number; file: URL; images: URL | null; dynamic: URL | null }>();
     for (const s of Array.isArray(o.states) ? o.states : []) {
         const st = str(s?.st).toUpperCase();
         if (!/^[A-Z]{2}$/.test(st)) continue;
         let file: URL;
         let images: URL | null = null;
+        let dynamic: URL | null = null;
         try {
             file = new URL(str(s.static) || `static/${st}.json.gz`, base);
             if (str(s.images)) images = new URL(str(s.images), base);
+            if (str(s.dynamic)) dynamic = new URL(str(s.dynamic), base);
         } catch {
             continue;
         }
         if (file.protocol !== 'https:') continue;
         if (images && images.protocol !== 'https:') images = null;
-        states.set(st, { cameras: Number(s.cameras) || 0, file, images });
+        if (dynamic && dynamic.protocol !== 'https:') dynamic = null;
+        states.set(st, { cameras: Number(s.cameras) || 0, file, images, dynamic });
     }
     if (!states.size) throw new Error('catalog lists no states');
 
@@ -205,6 +217,7 @@ function parseCatalog(body: unknown, etag: string): Catalog {
         checkedAt: Date.now(),
         base,
         imageLive,
+        dynamicBase: safeHttps(o.dynamic_base),
         mjpegBase: str(o.mjpeg_base),
         imageHost: imageBase ? imageBase.hostname : '',
         states,
@@ -253,7 +266,7 @@ async function ensureCatalog(force = false): Promise<Catalog | null> {
     return catalogState.catalog;
 }
 
-function parseStateFile(st: string, body: unknown, catalog: Catalog, withImages: Set<string>): StateFile {
+function parseStateFile(st: string, body: unknown, catalog: Catalog, withImages: Set<string>, offline: Set<string>): StateFile {
     if (!Array.isArray(body)) throw new Error(`${st} camera file is not a list`);
 
     const cameras: CatalogCamera[] = [];
@@ -295,7 +308,7 @@ function parseStateFile(st: string, body: unknown, catalog: Catalog, withImages:
         byId.set(id, camera);
     }
 
-    return { generated: catalog.generated, cameras, byId };
+    return { generated: catalog.generated, offline, cameras, byId };
 }
 
 /** A state's cameras, kept until the catalog changes */
@@ -333,7 +346,25 @@ async function catalogCameras(st: string): Promise<{ catalog: Catalog; file: Sta
                 }
             }
 
-            const file = parseStateFile(st, readJson(res.body), catalog, withImages);
+            // Online/offline as of the publish; the live feed is laid on top
+            const offline = new Set<string>();
+            if (entry.dynamic) {
+                try {
+                    const dynUrl = new URL(entry.dynamic);
+                    dynUrl.search = url.search;
+                    const dyn = await fetchBytes(dynUrl);
+                    if (dyn.status !== 200) throw new Error(`HTTP ${dyn.status}`);
+                    const list = readJson(dyn.body);
+                    for (const d of Array.isArray(list) ? list : []) {
+                        if (d && typeof d === 'object' && Number(d.off) === 1) offline.add(str(d.id));
+                    }
+                } catch (err) {
+                    console.error(`Cam Depot: ${st} status file failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+
+            const file = parseStateFile(st, readJson(res.body), catalog, withImages, offline);
+            status.version++;
             catalogState.files.set(st, file);
             return file;
         })().finally(() => {
@@ -348,6 +379,83 @@ async function catalogCameras(st: string): Promise<{ catalog: Catalog; file: Sta
         console.error(`Cam Depot: ${st} camera file failed: ${err instanceof Error ? err.message : String(err)}`);
         if (have) return { catalog, file: have };
         throw new Err(502, null, `Cameras for ${placeName(st)} are unavailable`);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Live status (online/offline): one poll of the catalog's status feed every 15 s
+// for the whole server, and only while some browser has asked in the last minute
+// ---------------------------------------------------------------------------
+
+const status: {
+    /** The feed's own change sequence */
+    seq: number;
+    /** Bumped on every change we see (and on every state file load) */
+    version: number;
+    /** `${state}:${catalog id}` -> offline, from the live feed */
+    live: Map<string, boolean>;
+    lastAsked: number;
+    timer: ReturnType<typeof setInterval> | null;
+    running: boolean;
+} = { seq: 0, version: 1, live: new Map(), lastAsked: 0, timer: null, running: false };
+
+function isOffline(st: string, file: StateFile, camera: CatalogCamera): boolean {
+    const live = status.live.get(`${st}:${camera.rawId}`);
+    return live !== undefined ? live : file.offline.has(camera.rawId);
+}
+
+async function pollStatus(): Promise<void> {
+    if (Date.now() - status.lastAsked > STATUS_IDLE_MS) {
+        if (status.timer) clearInterval(status.timer);
+        status.timer = null;
+        return;
+    }
+    const catalog = catalogState.catalog;
+    if (!catalog || !catalog.dynamicBase || status.running) return;
+
+    status.running = true;
+    try {
+        const url = new URL(catalog.dynamicBase);
+        url.searchParams.set('since', String(status.seq));
+        const res = await fetchBytes(url, { Accept: 'application/json' });
+        if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+        const body = readJson(res.body) as { seq?: unknown; cams?: unknown };
+        const seq = Number(body.seq);
+        if (!Number.isInteger(seq) || seq < 0) throw new Error('no sequence in the status feed');
+        // The feed restarted: ask for everything next time
+        if (seq < status.seq) {
+            status.seq = 0;
+            return;
+        }
+
+        let changed = false;
+        for (const c of Array.isArray(body.cams) ? body.cams : []) {
+            if (!c || typeof c !== 'object') continue;
+            const key = `${str(c.st).toUpperCase()}:${str(c.id)}`;
+            const off = Number(c.off) === 1;
+            if (status.live.get(key) !== off) {
+                status.live.set(key, off);
+                changed = true;
+            }
+        }
+        status.seq = seq;
+        if (changed) status.version++;
+    } catch (err) {
+        console.error(`Cam Depot: status feed failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+        status.running = false;
+    }
+}
+
+/** A browser is showing cameras: keep (or start) the 15 s status poll */
+function touchStatus(): void {
+    status.lastAsked = Date.now();
+    if (!status.timer) {
+        status.timer = setInterval(() => {
+            void pollStatus();
+        }, STATUS_POLL_MS);
+        status.timer.unref?.();
+        void pollStatus();
     }
 }
 
@@ -474,6 +582,7 @@ export default async function router(schema: Schema, config: ConfigStateless) {
         }),
         res: Type.Object({
             state: Type.String(),
+            version: Type.Integer(),
             attribution: Type.String(),
             updated: Type.String(),
             providers: Type.Array(Type.Object({
@@ -505,8 +614,10 @@ export default async function router(schema: Schema, config: ConfigStateless) {
                 .filter((p): p is Provider => !!p && !!(p.attribution || p.license))
                 .map(p => ({ id: p.id, attribution: p.attribution, license: p.license, license_url: p.licenseUrl }));
 
+            touchStatus();
             res.json({
                 state: req.query.state,
+                version: status.version,
                 attribution: CATALOG_CREDIT,
                 updated: catalog.generated,
                 providers,
@@ -518,10 +629,45 @@ export default async function router(schema: Schema, config: ConfigStateless) {
                     still: c.still || (c.liveStill ? `/api/cam-depot/still/${encodeURIComponent(c.id)}.jpg` : null),
                     video: !!c.stream,
                     stream: c.stream,
-                    online: true,
+                    online: !isOffline(req.query.state, file, c),
                     provider: c.provider,
                     county: c.county,
                 })),
+            });
+        } catch (err) {
+            Err.respond(err, res);
+        }
+    });
+
+    await schema.get('/cam-depot/status', {
+        name: 'Cam Depot Status',
+        group: 'CamDepot',
+        description: 'Offline cameras of one state; polled by the browser while cameras are on the map (keeps the 15 s status feed poll running)',
+        query: Type.Object({
+            state: Type.String({ pattern: '^[A-Z]{2}$' }),
+            /** The version the browser last saw: unchanged = nothing to send */
+            version: Type.Optional(Type.Integer({ minimum: 0 })),
+        }),
+        res: Type.Object({
+            version: Type.Integer(),
+            changed: Type.Boolean(),
+            offline: Type.Array(Type.String()),
+        }),
+    }, async (req, res) => {
+        try {
+            await Auth.as_user(config, req);
+
+            touchStatus();
+            if (req.query.version === status.version) {
+                res.json({ version: status.version, changed: false, offline: [] });
+                return;
+            }
+
+            const { file } = await catalogCameras(req.query.state);
+            res.json({
+                version: status.version,
+                changed: true,
+                offline: file.cameras.filter(c => isOffline(req.query.state, file, c)).map(c => c.id),
             });
         } catch (err) {
             Err.respond(err, res);

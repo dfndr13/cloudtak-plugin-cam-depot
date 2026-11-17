@@ -6,25 +6,29 @@
  * play button for the latest picture or live video.
  *
  * An independent CloudTAK plugin inspired by takwerx's Cam Depot for ATAK.
- * Not made or supported by takwerx. Camera data comes straight from each
- * agency's public API through this server (api/stateless/routes/plugin-cam-depot.ts).
+ * Not made or supported by takwerx. Camera data: the Cam Depot catalog by
+ * TAKWERX, read through this server (api/stateless/routes/plugin-cam-depot.ts).
  */
 import type { App } from 'vue';
 import { markRaw } from 'vue';
 import type { PluginAPI, PluginInstance, MenuItemConfig } from '../../plugin.ts';
 import { IconDeviceCctv } from '@tabler/icons-vue';
 import CamDepotPanel from './CamDepotPanel.vue';
-import { loadCameras, onCamerasChanged } from './lib/state.ts';
-import { syncCots } from './lib/cots.ts';
+import { loadCameras, onCamerasChanged, onStatusChanged, refreshStatus, state } from './lib/state.ts';
+import { syncCots, updateCots } from './lib/cots.ts';
 
 const MENU_KEY = 'plugin-cam-depot';
 const ROUTE_NAME = 'home-menu-cam-depot';
 const RELOAD_MS = 5 * 60 * 1000;
+/** Camera status: no faster than every 15 s (TAKWERX's limit) */
+const STATUS_MS = 15 * 1000;
 
 export default class CamDepotPlugin implements PluginInstance {
     api: PluginAPI;
     timer: ReturnType<typeof setInterval> | null = null;
+    statusTimer: ReturnType<typeof setInterval> | null = null;
     unlisten: (() => void) | null = null;
+    unlistenStatus: (() => void) | null = null;
 
     constructor(api: PluginAPI) {
         this.api = api;
@@ -50,17 +54,27 @@ export default class CamDepotPlugin implements PluginInstance {
         });
 
         this.unlisten = onCamerasChanged(() => { void syncCots(this.api.pinia); });
+        this.unlistenStatus = onStatusChanged((cameras) => { void updateCots(this.api.pinia, cameras); });
 
         // Load in the background; a failure shows in the panel, never blocks the map
         void loadCameras();
         this.timer = setInterval(() => { void loadCameras(true); }, RELOAD_MS);
+        // Status only while cameras are on the map and the tab is in view
+        this.statusTimer = setInterval(() => {
+            if (!state.visible || !state.cameras.length || document.visibilityState !== 'visible') return;
+            void refreshStatus();
+        }, STATUS_MS);
     }
 
     async disable(): Promise<void> {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
+        if (this.statusTimer) clearInterval(this.statusTimer);
+        this.statusTimer = null;
         if (this.unlisten) this.unlisten();
         this.unlisten = null;
+        if (this.unlistenStatus) this.unlistenStatus();
+        this.unlistenStatus = null;
         try { this.api.menu.remove(MENU_KEY); } catch { /* ignore */ }
     }
 }

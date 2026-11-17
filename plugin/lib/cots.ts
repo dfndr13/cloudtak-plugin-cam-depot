@@ -12,7 +12,7 @@ import type { Pinia } from 'pinia';
 import { useMapStore } from '../../../src/stores/map.ts';
 import { db as localDb } from '../../../src/database.ts';
 import type { InputFeature } from '../../../src/types.ts';
-import { state } from './state.ts';
+import { state, passesFilter } from './state.ts';
 import type { Camera } from './state.ts';
 import { videoUrl } from './open.ts';
 
@@ -40,7 +40,7 @@ function feature(camera: Camera, now: Date): InputFeature | null {
     if (!url) return null;
 
     const uid = UID_PREFIX + camera.id;
-    const status = !camera.online ? 'Offline: the agency reports no current picture' : (camera.video ? 'Live video' : 'Picture only');
+    const status = !camera.online ? 'Offline (camera status from the catalog)' : (camera.video ? 'Live video' : 'Picture only');
 
     return {
         id: uid,
@@ -72,6 +72,7 @@ export async function syncCots(pinia: Pinia): Promise<void> {
     if (state.visible) {
         const now = new Date();
         for (const camera of state.cameras) {
+            if (!passesFilter(camera)) continue;
             const feat = feature(camera, now);
             if (!feat) continue;
             keep.add(feat.id as string);
@@ -84,6 +85,26 @@ export async function syncCots(pinia: Pinia): Promise<void> {
     }
 
     await removeCots(pinia, keep);
+}
+
+/** Redraw only the given cameras (their online/offline status changed) */
+export async function updateCots(pinia: Pinia, cameras: Camera[]): Promise<void> {
+    if (!state.visible) return;
+    const db = useMapStore(pinia).worker.db;
+    const now = new Date();
+
+    for (const camera of cameras) {
+        const feat = feature(camera, now);
+        if (!feat) continue;
+        try {
+            if (passesFilter(camera)) {
+                await db.add(feat, { skipSave: true });
+            } else {
+                // e.g. a camera went offline while "Video" is the filter
+                await db.remove(feat.id as string, { skipNetwork: true });
+            }
+        } catch { /* try again on the next change */ }
+    }
 }
 
 /** Remove our markers (including ones left from an earlier page load), except the ids in keep */
