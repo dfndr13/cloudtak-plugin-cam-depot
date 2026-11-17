@@ -1,6 +1,6 @@
 <template>
     <MenuTemplate
-        name='CAM Depot'
+        name='Cam Depot'
         :loading='false'
     >
         <template #buttons>

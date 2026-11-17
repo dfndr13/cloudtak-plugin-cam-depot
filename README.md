@@ -1,4 +1,4 @@
-# CloudTAK CAM Depot
+# Cam Depot for CloudTAK
 
 Public traffic cameras on the CloudTAK map. Find a camera in the side panel or on the map, then see its latest picture or play live video in CloudTAK's video pane.
 
@@ -6,7 +6,7 @@ Public traffic cameras on the CloudTAK map. Find a camera in the side panel or o
 
 ## What it does
 
-- **Side panel** (main menu → CAM Depot): show or hide the cameras, search by name, "on screen only", and a picture or play button per camera.
+- **Side panel** (main menu → Cam Depot): show or hide the cameras, search by name, "on screen only", and a picture or play button per camera.
 - **Camera markers** on the map: real CoT markers of the camera type `b-m-p-s-p-loc` with CloudTAK's built-in camera icon (same as a TAK camera feed), coloured green = live video, blue = picture only, gray = offline. Click one for CloudTAK's radial menu; its play button opens the camera.
 - **Pictures** open in CloudTAK's video pane (from the panel or the radial play button) and refresh every 10 seconds.
 - **Live video** plays through a temporary CloudTAK video lease.

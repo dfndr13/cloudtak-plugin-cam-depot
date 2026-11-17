@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CloudTAK CAM Depot - installer
+# Cam Depot for CloudTAK - installer
 #
 # Usage, from a clone of https://github.com/dfndr13/cloudtak-plugin-cam-depot:
 #     bash install.sh <path-to-your-CloudTAK-checkout>
@@ -32,7 +32,7 @@ if [ ! -f "$CT/app/plugin.ts" ] || [ ! -d "$CT/api/stateless/routes" ]; then
 fi
 
 say() { printf '  %-28s %s\n' "$1" "$2"; }
-echo "Installing CloudTAK CAM Depot into $CT"
+echo "Installing Cam Depot for CloudTAK into $CT"
 
 # 1. Plugin folder (browser part only - the server route must not sit under
 #    app/plugins, where CloudTAK's web-app type check would pick it up)

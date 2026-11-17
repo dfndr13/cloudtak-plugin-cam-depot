@@ -1,5 +1,5 @@
 /**
- * CloudTAK CAM Depot
+ * Cam Depot for CloudTAK
  *
  * Public traffic cameras on the CloudTAK map: a side panel to find them, camera
  * CoT markers on the map (local only, never sent to TAK Server), and the radial
@@ -42,9 +42,9 @@ export default class CamDepotPlugin implements PluginInstance {
     async enable(): Promise<void> {
         this.api.menu.add({
             key: MENU_KEY,
-            label: 'CAM Depot',
+            label: 'Cam Depot',
             route: ROUTE_NAME,
-            tooltip: 'CloudTAK CAM Depot',
+            tooltip: 'Cam Depot for CloudTAK',
             description: 'Public traffic cameras: latest picture and live video',
             icon: markRaw(IconDeviceCctv) as unknown as MenuItemConfig['icon'],
         });

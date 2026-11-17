@@ -1,5 +1,5 @@
 /**
- * CloudTAK CAM Depot - server routes
+ * Cam Depot for CloudTAK - server routes
  *
  * An independent CloudTAK plugin inspired by takwerx's Cam Depot for ATAK.
  * Not made or supported by takwerx.
@@ -33,7 +33,7 @@ const REFRESH_MS = 60 * 1000;
 const HEALTH_MS = 10 * 60 * 1000;
 const HEALTH_GAP_MS = 250;
 const FETCH_TIMEOUT_MS = 20 * 1000;
-const USER_AGENT = 'Mozilla/5.0 (compatible; CloudTAK-CAM-Depot)';
+const USER_AGENT = 'Mozilla/5.0 (compatible; CamDepot-for-CloudTAK)';
 
 type Camera = {
     id: string;
@@ -207,7 +207,7 @@ async function camerasFor(adapter: Adapter): Promise<CacheEntry> {
                 e.error = null;
             }).catch((err: unknown) => {
                 e.error = err instanceof Error ? err.message : String(err);
-                console.error(`CAM Depot: ${adapter.state} source failed: ${e.error}`);
+                console.error(`Cam Depot: ${adapter.state} source failed: ${e.error}`);
             }).finally(() => {
                 e.pending = null;
             });
@@ -260,7 +260,7 @@ function sweepHealth(adapter: Adapter, entry: CacheEntry): void {
         entry.offline = offline;
         for (const c of entry.cameras) c.online = !(c.still && offline.has(c.still));
     })().catch((err: unknown) => {
-        console.error(`CAM Depot: ${adapter.state} health sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`Cam Depot: ${adapter.state} health sweep failed: ${err instanceof Error ? err.message : String(err)}`);
     }).finally(() => {
         entry.healthAt = Date.now();
         entry.healthRunning = false;
@@ -278,8 +278,8 @@ function rewriteUris(line: string, base: string): string {
 
 export default async function router(schema: Schema, config: ConfigStateless) {
     await schema.get('/cam-depot/states', {
-        name: 'CAM Depot States',
-        group: 'CAMDepot',
+        name: 'Cam Depot States',
+        group: 'CamDepot',
         description: 'States this server has a traffic-camera source for',
         res: Type.Object({
             items: Type.Array(Type.Object({
@@ -301,8 +301,8 @@ export default async function router(schema: Schema, config: ConfigStateless) {
     });
 
     await schema.get('/cam-depot/cameras', {
-        name: 'CAM Depot Cameras',
-        group: 'CAMDepot',
+        name: 'Cam Depot Cameras',
+        group: 'CamDepot',
         description: 'Traffic cameras for one state',
         query: Type.Object({
             state: Type.String({ pattern: '^[A-Z]{2}$' }),
@@ -345,8 +345,8 @@ export default async function router(schema: Schema, config: ConfigStateless) {
     });
 
     await schema.get('/cam-depot/hls/:camera/:type.m3u8', {
-        name: 'CAM Depot HLS Relay',
-        group: 'CAMDepot',
+        name: 'Cam Depot HLS Relay',
+        group: 'CamDepot',
         description: 'Fixed HLS playlist for a camera whose agency stream links expire; no login (fetched by the media server)',
         params: Type.Object({
             camera: Type.String({ pattern: '^[A-Z]{2}-[0-9]{1,7}(-[0-9])?$' }),

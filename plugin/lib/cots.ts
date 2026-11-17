@@ -1,5 +1,5 @@
 /**
- * CloudTAK CAM Depot - cameras as local CoT markers
+ * Cam Depot for CloudTAK - cameras as local CoT markers
  *
  * Each camera is added to CloudTAK's own feature store as a CoT, so it gets the
  * normal click/radial menu, and the radial play button opens its picture or
@@ -47,7 +47,7 @@ function feature(camera: Camera, now: Date): InputFeature | null {
             center: [camera.lon, camera.lat],
             'marker-color': !camera.online ? OFFLINE_COLOR : (camera.video ? VIDEO_COLOR : STILL_COLOR),
             'marker-opacity': 1,
-            remarks: `${status}\nSource: ${state.attribution || 'agency'} (CloudTAK CAM Depot)`,
+            remarks: `${status}\nSource: ${state.attribution || 'agency'} (Cam Depot for CloudTAK)`,
             video: { url },
         },
         geometry: { type: 'Point', coordinates: [camera.lon, camera.lat] },
@@ -68,7 +68,7 @@ export async function syncCots(pinia: Pinia): Promise<void> {
             try {
                 await db.add(feat, { skipSave: true });
             } catch (err) {
-                console.warn(`CAM Depot: could not add ${camera.id}`, err);
+                console.warn(`Cam Depot: could not add ${camera.id}`, err);
             }
         }
     }

@@ -1,5 +1,5 @@
 /**
- * CloudTAK CAM Depot - shared state and camera loading
+ * Cam Depot for CloudTAK - shared state and camera loading
  */
 import { reactive } from 'vue';
 import { std, stdurl } from '../../../src/std.ts';

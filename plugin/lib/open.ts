@@ -1,5 +1,5 @@
 /**
- * CloudTAK CAM Depot - open a camera in CloudTAK's floating video pane
+ * Cam Depot for CloudTAK - open a camera in CloudTAK's floating video pane
  *
  * The pane is the same one the radial play button opens: a picture URL shows as
  * a still (refreshed by the pane), anything else plays through a temporary
