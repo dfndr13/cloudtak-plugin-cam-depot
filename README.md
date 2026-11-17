@@ -8,7 +8,9 @@ Public traffic cameras on the CloudTAK map. Find a camera in the side panel or o
 
 - **Side panel** (main menu → Cam Depot): pick one or more states and Canadian provinces, show or hide the cameras, search by name, "on screen only", and a picture or play button per camera with its provider.
 - **Sync** (the refresh button): asks the server to check the camera catalog for changes and reloads the lists.
-- **Filters** (map and list): show every camera, live video only, picture only or offline only; one provider; one or more counties.
+- **Filters** (map and list): show every camera, live video only, picture only, fire cameras or offline only; one provider; one or more counties.
+- **Search** (3 or more letters) looks through the picked states in the browser and through every other state on the server (name, road, county or provider; first 50 shown). The server reads every state's files the first time anyone searches, 4 at a time, then only again after the catalog changes.
+- **Big selections:** when more than 2,000 cameras match, only the 2,000 nearest the map view become markers, and they follow the map as it moves.
 - **Favorites:** a star on each camera; "Favorites only" lists them across every state, picked or not. Saved in the browser.
 - **Camera markers** on the map: real CoT markers of the camera type `b-m-p-s-p-loc` with CloudTAK's built-in camera icon (same as a TAK camera feed), coloured green = live video, blue = picture only, gray = offline (from the catalog's status feed). Click one for CloudTAK's radial menu; its play button opens the camera.
 - **Pictures** open in CloudTAK's video pane (from the panel or the radial play button) and refresh every 15 seconds (the most some providers allow).

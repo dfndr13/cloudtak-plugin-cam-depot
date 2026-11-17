@@ -121,6 +121,9 @@
                             <option value='still'>
                                 Picture only
                             </option>
+                            <option value='fire'>
+                                Fire cameras
+                            </option>
                             <option value='offline'>
                                 Offline
                             </option>
@@ -212,6 +215,14 @@
                     v-text='state.syncNote'
                 />
 
+                <div
+                    v-if='view.limited && state.visible'
+                    class='small text-secondary'
+                >
+                    {{ view.total.toLocaleString() }} cameras match, so the map shows the {{ view.drawn.toLocaleString() }}
+                    nearest the view. Pan or zoom to see others.
+                </div>
+
                 <div class='small text-secondary d-flex gap-3'>
                     <span><span class='cam-dot cam-dot-video' /> Video {{ counts.video }}</span>
                     <span><span class='cam-dot cam-dot-still' /> Picture only {{ counts.still }}</span>
@@ -271,7 +282,7 @@
             />
             <TablerNone
                 v-else-if='!shown.length'
-                label='No cameras match'
+                :label='searchWords.length ? "No match in your picked states" : "No cameras match"'
                 :create='false'
             />
             <div
@@ -346,6 +357,78 @@
                     Showing {{ shown.length }} of {{ matched.length }}. Search or zoom in to narrow the list.
                 </div>
             </div>
+
+            <template v-if='!state.favoritesOnly && searchWords.length'>
+                <div class='small fw-bold text-secondary px-2 pt-3'>
+                    Other states
+                    <span v-if='other'>({{ other.total.toLocaleString() }})</span>
+                </div>
+                <div
+                    v-if='otherLoading || (other && !other.complete)'
+                    class='small text-secondary px-2'
+                >
+                    Searching every state (the first search takes a little longer)...
+                </div>
+                <div
+                    v-if='otherError'
+                    class='small text-danger px-2'
+                    v-text='otherError'
+                />
+                <div
+                    v-if='other && other.items.length'
+                    class='list-group list-group-flush'
+                >
+                    <div
+                        v-for='cam in other.items'
+                        :key='cam.id'
+                        class='list-group-item d-flex align-items-center gap-2 px-2 py-2 cursor-pointer hover'
+                        role='button'
+                        tabindex='0'
+                        @click='goTo(cam)'
+                        @keyup.enter='goTo(cam)'
+                    >
+                        <span :class='["cam-dot", !cam.online ? "cam-dot-offline" : (cam.video ? "cam-dot-video" : "cam-dot-still")]' />
+                        <div class='flex-grow-1 text-truncate'>
+                            <div
+                                class='text-truncate'
+                                :title='cam.name'
+                                v-text='cam.name'
+                            />
+                            <div
+                                class='small text-secondary text-truncate'
+                                v-text='`${cam.provider}, ${cam.state}`'
+                            />
+                        </div>
+                        <TablerIconButton
+                            :title='isFavorite(cam.id) ? "Remove from favorites" : "Add to favorites"'
+                            @click.stop='toggleFavorite(cam)'
+                        >
+                            <IconStarFilled
+                                v-if='isFavorite(cam.id)'
+                                :size='20'
+                                class='text-yellow'
+                            />
+                            <IconStar
+                                v-else
+                                :size='20'
+                                stroke='1'
+                            />
+                        </TablerIconButton>
+                    </div>
+                    <div
+                        v-if='other.total > other.items.length'
+                        class='small text-secondary px-2 py-2'
+                    >
+                        Showing {{ other.items.length }} of {{ other.total.toLocaleString() }}. Add words to narrow the search.
+                    </div>
+                </div>
+                <div
+                    v-else-if='other && other.complete'
+                    class='small text-secondary px-2'
+                >
+                    No cameras match in other states.
+                </div>
+            </template>
         </template>
 
         <template #footer>
@@ -397,11 +480,11 @@ import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
 import { useMapStore } from '../../src/stores/map.ts';
 import {
     state, loadCameras, savePrefs, sync, passesFilter, countyKey, camerasChanged,
-    isFavorite, toggleFavorite, cameraForFavorite,
+    isFavorite, toggleFavorite, cameraForFavorite, searchOtherStates,
 } from './lib/state.ts';
-import type { Camera, Favorite } from './lib/state.ts';
+import type { Camera, Favorite, SearchResult } from './lib/state.ts';
 import { openCamera } from './lib/open.ts';
-import { syncCots } from './lib/cots.ts';
+import { syncCots, view } from './lib/cots.ts';
 
 const LIST_LIMIT = 200;
 const BIG_SELECTION = 5000;
@@ -411,6 +494,50 @@ const mapStore = useMapStore();
 
 const filter = ref('');
 const picking = ref(false);
+
+// Search in states that aren't picked (on the server), after a pause in typing
+const SEARCH_MIN = 3;
+const searchWords = computed(() => {
+    const q = filter.value.trim();
+    return q.length >= SEARCH_MIN ? q.split(/\s+/) : [];
+});
+const other = ref<SearchResult | null>(null);
+const otherLoading = ref(false);
+const otherError = ref('');
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+let searchRun = 0;
+
+async function runSearch(tries = 0): Promise<void> {
+    const q = filter.value.trim();
+    if (q.length < SEARCH_MIN) return;
+    const run = ++searchRun;
+    otherLoading.value = true;
+    otherError.value = '';
+    try {
+        const result = await searchOtherStates(q);
+        if (run !== searchRun) return;
+        other.value = result;
+        // The server is still reading other states: ask again shortly (a few times)
+        if (!result.complete && tries < 10) {
+            searchTimer = setTimeout(() => { void runSearch(tries + 1); }, 3000);
+        }
+    } catch (err) {
+        if (run === searchRun) otherError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+        if (run === searchRun) otherLoading.value = false;
+    }
+}
+
+watch(filter, () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    other.value = null;
+    if (filter.value.trim().length < SEARCH_MIN) {
+        searchRun++;
+        otherLoading.value = false;
+        return;
+    }
+    searchTimer = setTimeout(() => { void runSearch(); }, 500);
+});
 const pickingCounties = ref(false);
 const countyFilter = ref('');
 
@@ -561,6 +688,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+    if (searchTimer) clearTimeout(searchTimer);
     mapStore.map.off('moveend', readView);
 });
 </script>

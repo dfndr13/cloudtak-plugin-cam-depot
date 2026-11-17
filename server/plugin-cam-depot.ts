@@ -8,6 +8,7 @@
  * - GET  /cam-depot/states                 States and provinces in the catalog (logged-in users)
  * - GET  /cam-depot/cameras?state=KS       Camera list for one state (logged-in users)
  * - POST /cam-depot/sync                   Check the catalog for changes (logged-in users, rate-limited)
+ * - GET  /cam-depot/search?q=I-70          Find cameras in every state (logged-in users)
  * - GET  /cam-depot/status?state=KS        Offline cameras of one state (logged-in users); keeps the
  *                                          catalog status feed polled every 15 s while in use
  * - GET  /cam-depot/still/:camera.jpg      Current picture of a camera without its own picture
@@ -106,6 +107,10 @@ type CatalogCamera = {
     /** No still link, but listed in the state's images file: picture from the live picture lookup */
     liveStill: boolean;
     stream: string | null;
+    /** Wildfire camera */
+    fire: boolean;
+    /** Road or highway name, used by search */
+    highway: string;
 };
 
 type StateFile = {
@@ -300,6 +305,8 @@ function parseStateFile(st: string, body: unknown, catalog: Catalog, withImages:
             lon: Math.round(lon * 1e6) / 1e6,
             county: str(c.co),
             provider: str(c.pr),
+            fire: Number(c.fire) === 1,
+            highway: str(c.h),
             still: still ? still.href : null,
             liveStill,
             stream,
@@ -380,6 +387,64 @@ async function catalogCameras(st: string): Promise<{ catalog: Catalog; file: Sta
         if (have) return { catalog, file: have };
         throw new Err(502, null, `Cameras for ${placeName(st)} are unavailable`);
     }
+}
+
+function cameraJson(st: string, file: StateFile, c: CatalogCamera) {
+    return {
+        id: c.id,
+        name: c.name,
+        lat: c.lat,
+        lon: c.lon,
+        still: c.still || (c.liveStill ? `/api/cam-depot/still/${encodeURIComponent(c.id)}.jpg` : null),
+        video: !!c.stream,
+        stream: c.stream,
+        online: !isOffline(st, file, c),
+        provider: c.provider,
+        county: c.county,
+        fire: c.fire,
+        state: st,
+    };
+}
+
+const CameraJson = Type.Object({
+    id: Type.String(),
+    name: Type.String(),
+    lat: Type.Number(),
+    lon: Type.Number(),
+    still: Type.Union([Type.String(), Type.Null()]),
+    video: Type.Boolean(),
+    stream: Type.Union([Type.String(), Type.Null()]),
+    online: Type.Boolean(),
+    provider: Type.String(),
+    county: Type.String(),
+    fire: Type.Boolean(),
+    state: Type.String(),
+});
+
+// ---------------------------------------------------------------------------
+// Search across every state: each state's files are read once per catalog
+// publish (4 at a time), the first time anyone searches
+// ---------------------------------------------------------------------------
+
+const SEARCH_LIMIT = 50;
+const searchState: { generated: string; running: Promise<void> | null } = { generated: '', running: null };
+
+function loadAllStates(catalog: Catalog): void {
+    if (searchState.running || searchState.generated === catalog.generated) return;
+    const todo = [...catalog.states.keys()];
+    searchState.running = (async () => {
+        const worker = async () => {
+            for (let st = todo.shift(); st; st = todo.shift()) {
+                try {
+                    await catalogCameras(st);
+                } catch { /* logged by catalogCameras; that state is left out of search */ }
+            }
+        };
+        await Promise.all([worker(), worker(), worker(), worker()]);
+        searchState.generated = catalog.generated;
+    })().finally(() => {
+        searchState.running = null;
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -591,18 +656,7 @@ export default async function router(schema: Schema, config: ConfigStateless) {
                 license: Type.String(),
                 license_url: Type.String(),
             })),
-            items: Type.Array(Type.Object({
-                id: Type.String(),
-                name: Type.String(),
-                lat: Type.Number(),
-                lon: Type.Number(),
-                still: Type.Union([Type.String(), Type.Null()]),
-                video: Type.Boolean(),
-                stream: Type.Union([Type.String(), Type.Null()]),
-                online: Type.Boolean(),
-                provider: Type.String(),
-                county: Type.String(),
-            })),
+            items: Type.Array(CameraJson),
         }),
     }, async (req, res) => {
         try {
@@ -621,19 +675,52 @@ export default async function router(schema: Schema, config: ConfigStateless) {
                 attribution: CATALOG_CREDIT,
                 updated: catalog.generated,
                 providers,
-                items: file.cameras.map(c => ({
-                    id: c.id,
-                    name: c.name,
-                    lat: c.lat,
-                    lon: c.lon,
-                    still: c.still || (c.liveStill ? `/api/cam-depot/still/${encodeURIComponent(c.id)}.jpg` : null),
-                    video: !!c.stream,
-                    stream: c.stream,
-                    online: !isOffline(req.query.state, file, c),
-                    provider: c.provider,
-                    county: c.county,
-                })),
+                items: file.cameras.map(c => cameraJson(req.query.state, file, c)),
             });
+        } catch (err) {
+            Err.respond(err, res);
+        }
+    });
+
+    await schema.get('/cam-depot/search', {
+        name: 'Cam Depot Search',
+        group: 'CamDepot',
+        description: 'Find cameras by name, road or county in every state (loads every state file once per catalog publish)',
+        query: Type.Object({
+            q: Type.String({ minLength: 2, maxLength: 100 }),
+            /** States the browser already searches itself, comma separated */
+            exclude: Type.Optional(Type.String({ pattern: '^([A-Z]{2})?(,[A-Z]{2})*$' })),
+        }),
+        res: Type.Object({
+            complete: Type.Boolean(),
+            total: Type.Integer(),
+            items: Type.Array(CameraJson),
+        }),
+    }, async (req, res) => {
+        try {
+            await Auth.as_user(config, req);
+
+            const catalog = await ensureCatalog();
+            if (!catalog) throw new Err(503, null, 'The camera catalog is unavailable');
+            loadAllStates(catalog);
+
+            const words = req.query.q.toLowerCase().split(/\s+/).filter(Boolean);
+            const exclude = new Set((req.query.exclude || '').split(',').filter(Boolean));
+            const items = [];
+            let total = 0;
+
+            for (const st of [...catalog.states.keys()].sort()) {
+                const file = catalogState.files.get(st);
+                if (exclude.has(st) || !file || file.generated !== catalog.generated) continue;
+                for (const c of file.cameras) {
+                    const text = `${c.name} ${c.highway} ${c.county} ${c.provider}`.toLowerCase();
+                    if (!words.every(w => text.includes(w))) continue;
+                    total++;
+                    if (items.length < SEARCH_LIMIT) items.push(cameraJson(st, file, c));
+                }
+            }
+
+            res.json({ complete: searchState.generated === catalog.generated && !searchState.running, total, items });
         } catch (err) {
             Err.respond(err, res);
         }

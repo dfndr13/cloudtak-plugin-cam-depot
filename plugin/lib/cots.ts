@@ -8,6 +8,7 @@
  * stale time keeps them from outliving the plugin; they are refreshed on every
  * camera reload.
  */
+import { reactive } from 'vue';
 import type { Pinia } from 'pinia';
 import { useMapStore } from '../../../src/stores/map.ts';
 import { db as localDb } from '../../../src/database.ts';
@@ -17,6 +18,16 @@ import type { Camera } from './state.ts';
 import { videoUrl } from './open.ts';
 
 export const UID_PREFIX = 'cam-depot-';
+/** Above this many cameras, only those nearest the map view become markers */
+export const MARKER_CAP = 2000;
+/** The view is widened by this share on each side, so a small pan needs no redraw */
+const VIEW_PAD = 0.25;
+
+/** What the map is showing, for the panel */
+export const view = reactive({ limited: false, total: 0, drawn: 0 });
+
+/** Marker ids currently on the map */
+let drawn = new Set<string>();
 const STALE_MS = 15 * 60 * 1000;
 
 // No custom icon: CloudTAK draws its built-in icon for the camera CoT type
@@ -64,27 +75,61 @@ function feature(camera: Camera, now: Date): InputFeature | null {
     } as InputFeature;
 }
 
-/** Put the current camera list on the map (or take it off when hidden) */
-export async function syncCots(pinia: Pinia): Promise<void> {
+/** Big selections: the cameras in (or near) the map view, nearest the centre first, up to the cap */
+function nearView(pinia: Pinia, cameras: Camera[]): Camera[] {
+    const map = useMapStore(pinia).map;
+    if (!map) return cameras.slice(0, MARKER_CAP);
+
+    const b = map.getBounds();
+    const padLon = (b.getEast() - b.getWest()) * VIEW_PAD;
+    const padLat = (b.getNorth() - b.getSouth()) * VIEW_PAD;
+    const c = map.getCenter();
+
+    return cameras
+        .filter((cam) => cam.lon >= b.getWest() - padLon && cam.lon <= b.getEast() + padLon
+            && cam.lat >= b.getSouth() - padLat && cam.lat <= b.getNorth() + padLat)
+        .map((cam) => ({ cam, d: (cam.lon - c.lng) ** 2 + (cam.lat - c.lat) ** 2 }))
+        .sort((x, y) => x.d - y.d)
+        .slice(0, MARKER_CAP)
+        .map((x) => x.cam);
+}
+
+/**
+ * Put the current camera list on the map (or take it off when hidden).
+ * full = re-add every marker (new data); otherwise only add what is missing
+ * (the map moved and only some cameras are shown).
+ */
+export async function syncCots(pinia: Pinia, full = true): Promise<void> {
     const db = useMapStore(pinia).worker.db;
     const keep = new Set<string>();
 
-    if (state.visible) {
-        const now = new Date();
-        for (const camera of state.cameras) {
-            if (!passesFilter(camera)) continue;
-            const feat = feature(camera, now);
-            if (!feat) continue;
-            keep.add(feat.id as string);
-            try {
-                await db.add(feat, { skipSave: true });
-            } catch (err) {
-                console.warn(`Cam Depot: could not add ${camera.id}`, err);
-            }
+    let cameras = state.visible ? state.cameras.filter(passesFilter) : [];
+    view.total = cameras.length;
+    view.limited = cameras.length > MARKER_CAP;
+    if (view.limited) cameras = nearView(pinia, cameras);
+
+    const now = new Date();
+    for (const camera of cameras) {
+        const feat = feature(camera, now);
+        if (!feat) continue;
+        const uid = feat.id as string;
+        keep.add(uid);
+        if (!full && drawn.has(uid)) continue;
+        try {
+            await db.add(feat, { skipSave: true });
+        } catch (err) {
+            console.warn(`Cam Depot: could not add ${camera.id}`, err);
         }
     }
 
+    drawn = keep;
+    view.drawn = keep.size;
     await removeCots(pinia, keep);
+}
+
+/** The map moved: redraw only when big selections limit the markers to the view */
+export async function viewChanged(pinia: Pinia): Promise<void> {
+    if (view.limited && state.visible) await syncCots(pinia, false);
 }
 
 /** Redraw only the given cameras (their online/offline status changed) */
@@ -96,6 +141,8 @@ export async function updateCots(pinia: Pinia, cameras: Camera[]): Promise<void>
     for (const camera of cameras) {
         const feat = feature(camera, now);
         if (!feat) continue;
+        // Big selections: leave cameras outside the drawn set to the next view redraw
+        if (view.limited && !drawn.has(feat.id as string)) continue;
         try {
             if (passesFilter(camera)) {
                 await db.add(feat, { skipSave: true });

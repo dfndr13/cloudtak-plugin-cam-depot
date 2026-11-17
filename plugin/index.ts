@@ -15,7 +15,8 @@ import type { PluginAPI, PluginInstance, MenuItemConfig } from '../../plugin.ts'
 import { IconDeviceCctv } from '@tabler/icons-vue';
 import CamDepotPanel from './CamDepotPanel.vue';
 import { loadCameras, onCamerasChanged, onStatusChanged, refreshStatus, state } from './lib/state.ts';
-import { syncCots, updateCots } from './lib/cots.ts';
+import { syncCots, updateCots, viewChanged } from './lib/cots.ts';
+import { useMapStore } from '../../src/stores/map.ts';
 
 const MENU_KEY = 'plugin-cam-depot';
 const ROUTE_NAME = 'home-menu-cam-depot';
@@ -29,6 +30,12 @@ export default class CamDepotPlugin implements PluginInstance {
     statusTimer: ReturnType<typeof setInterval> | null = null;
     unlisten: (() => void) | null = null;
     unlistenStatus: (() => void) | null = null;
+    moveTimer: ReturnType<typeof setTimeout> | undefined;
+    onMove = (): void => {
+        // Wait for the map to settle before redrawing
+        if (this.moveTimer) clearTimeout(this.moveTimer);
+        this.moveTimer = setTimeout(() => { void viewChanged(this.api.pinia); }, 400);
+    };
 
     constructor(api: PluginAPI) {
         this.api = api;
@@ -56,6 +63,10 @@ export default class CamDepotPlugin implements PluginInstance {
         this.unlisten = onCamerasChanged(() => { void syncCots(this.api.pinia); });
         this.unlistenStatus = onStatusChanged((cameras) => { void updateCots(this.api.pinia, cameras); });
 
+        try {
+            useMapStore(this.api.pinia).map.on('moveend', this.onMove);
+        } catch { /* map not ready: big selections redraw on the next camera reload */ }
+
         // Load in the background; a failure shows in the panel, never blocks the map
         void loadCameras();
         this.timer = setInterval(() => { void loadCameras(true); }, RELOAD_MS);
@@ -71,6 +82,10 @@ export default class CamDepotPlugin implements PluginInstance {
         this.timer = null;
         if (this.statusTimer) clearInterval(this.statusTimer);
         this.statusTimer = null;
+        if (this.moveTimer) clearTimeout(this.moveTimer);
+        try {
+            useMapStore(this.api.pinia).map.off('moveend', this.onMove);
+        } catch { /* map gone */ }
         if (this.unlisten) this.unlisten();
         this.unlisten = null;
         if (this.unlistenStatus) this.unlistenStatus();

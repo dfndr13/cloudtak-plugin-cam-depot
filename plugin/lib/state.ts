@@ -18,6 +18,7 @@ export type Camera = {
     online: boolean;
     provider: string;
     county: string;
+    fire: boolean;
     state: string;
 };
 
@@ -53,7 +54,7 @@ export type Favorite = {
     lon: number;
 };
 
-export type Kind = 'all' | 'video' | 'still' | 'offline';
+export type Kind = 'all' | 'video' | 'still' | 'fire' | 'offline';
 
 const PREFS_KEY = 'cam-depot:prefs';
 const RELOAD_MS = 5 * 60 * 1000;
@@ -70,7 +71,7 @@ type Prefs = {
     favoritesOnly: boolean;
 };
 
-const KINDS: Kind[] = ['all', 'video', 'still', 'offline'];
+const KINDS: Kind[] = ['all', 'video', 'still', 'fire', 'offline'];
 
 function loadPrefs(): Prefs {
     const prefs: Prefs = {
@@ -158,6 +159,7 @@ export function countyKey(camera: Camera): string {
 export function passesFilter(camera: Camera): boolean {
     if (state.kind === 'video' && !(camera.online && camera.video)) return false;
     if (state.kind === 'still' && !(camera.online && !camera.video)) return false;
+    if (state.kind === 'fire' && !camera.fire) return false;
     if (state.kind === 'offline' && camera.online) return false;
     if (state.provider && camera.provider !== state.provider) return false;
     if (state.counties.length && !state.counties.includes(countyKey(camera))) return false;
@@ -220,7 +222,7 @@ async function fetchState(st: string): Promise<StateCameras> {
     const body = await std(url) as {
         version: number;
         providers: ProviderCredit[];
-        items: Array<Omit<Camera, 'state'>>;
+        items: Camera[];
     };
     return {
         providers: body.providers,
@@ -350,6 +352,20 @@ export async function refreshStatus(): Promise<void> {
         state.cameras = [...state.cameras];
         for (const fn of statusListeners) fn(changed);
     }
+}
+
+export type SearchResult = { complete: boolean; total: number; items: Camera[] };
+
+/** Search every state the user hasn't picked (picked states are searched in the browser) */
+export async function searchOtherStates(q: string): Promise<SearchResult> {
+    const url = stdurl('/api/cam-depot/search');
+    url.searchParams.set('q', q);
+    if (state.states.length) url.searchParams.set('exclude', state.states.join(','));
+    const body = await std(url) as SearchResult;
+    return {
+        ...body,
+        items: body.items.map((c) => ({ ...c, still: c.still ? new URL(c.still, stdurl('/')).href : null })),
+    };
 }
 
 export function findCamera(id: string): Camera | undefined {
