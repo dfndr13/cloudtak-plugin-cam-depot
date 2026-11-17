@@ -99,17 +99,22 @@ data = json.loads(raw)
 routes = {
     "GET /cam-depot/states": {"body": False, "query": False, "res": True},
     "GET /cam-depot/cameras": {"body": False, "query": True, "res": True},
-    "GET /cam-depot/hls/:camera/:type.m3u8": {"body": False, "query": True, "res": False},
+    "POST /cam-depot/sync": {"body": False, "query": False, "res": True},
+    "GET /cam-depot/still/:camera.jpg": {"body": False, "query": False, "res": False},
 }
+# Routes of earlier versions of this plugin
+retired = [k for k in ("GET /cam-depot/hls/:camera/:type.m3u8",) if k in data]
+for k in retired:
+    del data[k]
 added = [k for k in routes if k not in data]
 for k in added:
     data[k] = routes[k]
-if added:
+if added or retired:
     out = json.dumps(data, indent=4)
     if raw.endswith("\n"):
         out += "\n"
     open(path, "w").write(out)
-print("  %-28s %s" % ("test route list", "routes added" if added else "already listed"))
+print("  %-28s %s" % ("test route list", "routes updated" if (added or retired) else "already listed"))
 PY
 else
     say "test route list" "skipped (no python3 or no fixture)"

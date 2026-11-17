@@ -14,7 +14,7 @@ import { db as localDb } from '../../../src/database.ts';
 import type { InputFeature } from '../../../src/types.ts';
 import { state } from './state.ts';
 import type { Camera } from './state.ts';
-import { relayUrl } from './open.ts';
+import { videoUrl } from './open.ts';
 
 export const UID_PREFIX = 'cam-depot-';
 const STALE_MS = 15 * 60 * 1000;
@@ -25,8 +25,18 @@ export const VIDEO_COLOR = '#2fb344';
 export const STILL_COLOR = '#4299e1';
 export const OFFLINE_COLOR = '#868e96';
 
+function remarks(camera: Camera, status: string): string {
+    const lines = [status, `Provider: ${camera.provider || 'agency'}`];
+    const credit = state.providers.find((p) => p.id === camera.provider);
+    if (credit && credit.attribution) lines.push(credit.attribution);
+    if (credit && credit.license) lines.push(`License: ${credit.license}${credit.license_url ? ` (${credit.license_url})` : ''}`);
+    lines.push(state.catalog.credit);
+    lines.push('Cam Depot for CloudTAK');
+    return lines.join('\n');
+}
+
 function feature(camera: Camera, now: Date): InputFeature | null {
-    const url = camera.video ? relayUrl(camera) : camera.still;
+    const url = camera.video ? videoUrl(camera) : camera.still;
     if (!url) return null;
 
     const uid = UID_PREFIX + camera.id;
@@ -47,7 +57,7 @@ function feature(camera: Camera, now: Date): InputFeature | null {
             center: [camera.lon, camera.lat],
             'marker-color': !camera.online ? OFFLINE_COLOR : (camera.video ? VIDEO_COLOR : STILL_COLOR),
             'marker-opacity': 1,
-            remarks: `${status}\nSource: ${state.attribution || 'agency'} (Cam Depot for CloudTAK)`,
+            remarks: remarks(camera, status),
             video: { url },
         },
         geometry: { type: 'Point', coordinates: [camera.lon, camera.lat] },
