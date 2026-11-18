@@ -49,7 +49,7 @@ Catalog rules (TAKWERX's terms): the catalog is read at most once a day with its
 ## Requirements
 
 - **Pictures need a small CloudTAK change:** the video pane (`app/src/components/CloudTAK/util/FloatingVideo.vue`) showing image links as a refreshing picture through CloudTAK's image proxy. The installer applies it (`patches/floating-video-stills.patch`; already in the `dfndr13/CloudTAK` fork).
-- CloudTAK with the image proxy (`/api/proxy/image`, upstream since October 2026). Tested on v13.121.1.
+- CloudTAK with the image proxy (`/api/proxy/image`, upstream since October 2026). Tested on v13.121.1 and on a clean v13.124.0 with the installer.
 - CloudTAK's server needs outbound HTTPS to the catalog and the picture hosts, and CloudTAK's media server needs outbound HTTPS to the stream hosts.
 
 ## Install
@@ -68,7 +68,7 @@ The installer only changes files, and each step is skipped if it's already done,
 2. copies the server route (`server/plugin-cam-depot.ts`) to `api/stateless/routes/`;
 3. applies the video pane change for pictures (`patches/floating-video-stills.patch`). If your CloudTAK version doesn't take the patch, it says so: video still works, pictures need the change applied by hand;
 4. adds `!app/plugins/cam-depot` to `.dockerignore` (standard CloudTAK leaves plugin folders out of the image) and to `app/.gitignore` where needed;
-5. adds the plugin's three routes to `api/test/fixtures/get_schema.json`, so CloudTAK's API tests still pass.
+5. adds the plugin's six routes to `api/test/fixtures/get_schema.json` (and removes the retired milestone 1 video relay route if an older install added it), so CloudTAK's API tests still pass.
 
 Don't install or update it through the TAK Portal marketplace.
 
