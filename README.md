@@ -2,7 +2,13 @@
 
 Public traffic cameras on the CloudTAK map. Find a camera in the side panel or on the map, then see its latest picture or play live video in CloudTAK's video pane.
 
-> An independent CloudTAK plugin inspired by takwerx's [Cam Depot](https://github.com/takwerx/cam-depot) for ATAK. **Not made or supported by takwerx.** It shares no code with Cam Depot. Camera data comes from the Cam Depot catalog published by TAKWERX, used with their permission ([cam-depot#9](https://github.com/takwerx/cam-depot/issues/9)). The cameras belong to the agencies shown on each camera.
+> An independent CloudTAK plugin, inspired by takwerx's [Cam Depot](https://github.com/takwerx/cam-depot) for ATAK.
+>
+> **The camera list comes from TAKWERX.** Every camera, video link and picture link is read from the Cam Depot catalog that TAKWERX publishes, used with their permission. Some video goes through their relay.
+>
+> **The plugin itself is not made or supported by TAKWERX.** It shares no code with Cam Depot. Please report problems with this plugin here, not to TAKWERX.
+>
+> The cameras belong to the agencies shown on each camera.
 
 ## What it does
 
