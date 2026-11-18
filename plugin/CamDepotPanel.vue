@@ -4,11 +4,19 @@
         :loading='false'
     >
         <template #buttons>
-            <TablerRefreshButton
+            <button
+                type='button'
+                class='btn btn-sm btn-outline-secondary'
                 title='Sync: check the camera catalog for changes and reload'
-                :loading='state.loading || state.syncing'
+                :disabled='state.loading || state.syncing'
                 @click='sync'
-            />
+            >
+                <span
+                    v-if='state.loading || state.syncing'
+                    class='spinner-border spinner-border-sm me-1'
+                />
+                Sync
+            </button>
         </template>
 
         <template #default>
@@ -29,6 +37,18 @@
                         <span
                             class='text-truncate'
                             v-text='pickedLabel'
+                        />
+                        <IconChevronUp
+                            v-if='picking'
+                            class='ms-auto flex-shrink-0'
+                            :size='16'
+                            stroke='1.5'
+                        />
+                        <IconChevronDown
+                            v-else
+                            class='ms-auto flex-shrink-0'
+                            :size='16'
+                            stroke='1.5'
                         />
                     </button>
                 </div>
@@ -158,6 +178,18 @@
                             <span
                                 class='text-truncate'
                                 v-text='countiesLabel'
+                            />
+                            <IconChevronUp
+                                v-if='pickingCounties'
+                                class='ms-auto flex-shrink-0'
+                                :size='16'
+                                stroke='1.5'
+                            />
+                            <IconChevronDown
+                                v-else
+                                class='ms-auto flex-shrink-0'
+                                :size='16'
+                                stroke='1.5'
                             />
                         </button>
                     </div>
@@ -472,10 +504,9 @@ import {
     TablerInput,
     TablerLoading,
     TablerNone,
-    TablerRefreshButton,
     TablerToggle,
 } from '@tak-ps/vue-tabler';
-import { IconPhoto, IconPlayerPlay, IconStar, IconStarFilled } from '@tabler/icons-vue';
+import { IconChevronDown, IconChevronUp, IconPhoto, IconPlayerPlay, IconStar, IconStarFilled } from '@tabler/icons-vue';
 import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
 import { useMapStore } from '../../src/stores/map.ts';
 import {

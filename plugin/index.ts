@@ -12,7 +12,7 @@
 import type { App } from 'vue';
 import { markRaw } from 'vue';
 import type { PluginAPI, PluginInstance, MenuItemConfig } from '../../plugin.ts';
-import { IconDeviceCctv } from '@tabler/icons-vue';
+import { IconVideo } from '@tabler/icons-vue';
 import CamDepotPanel from './CamDepotPanel.vue';
 import { loadCameras, onCamerasChanged, onStatusChanged, refreshStatus, state } from './lib/state.ts';
 import { syncCots, updateCots, viewChanged } from './lib/cots.ts';
@@ -57,7 +57,7 @@ export default class CamDepotPlugin implements PluginInstance {
             route: ROUTE_NAME,
             tooltip: 'Cam Depot for CloudTAK',
             description: 'Public traffic cameras: latest picture and live video',
-            icon: markRaw(IconDeviceCctv) as unknown as MenuItemConfig['icon'],
+            icon: markRaw(IconVideo) as unknown as MenuItemConfig['icon'],
         });
 
         this.unlisten = onCamerasChanged(() => { void syncCots(this.api.pinia); });

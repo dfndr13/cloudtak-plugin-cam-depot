@@ -7,7 +7,7 @@ Public traffic cameras on the CloudTAK map. Find a camera in the side panel or o
 ## What it does
 
 - **Side panel** (main menu → Cam Depot): pick one or more states and Canadian provinces, show or hide the cameras, search by name, "on screen only", and a picture or play button per camera with its provider.
-- **Sync** (the refresh button): asks the server to check the camera catalog for changes and reloads the lists.
+- **Sync** (the button at the top of the panel): checks for a newer camera catalog and reloads the camera lists. See [The Sync button](#the-sync-button).
 - **Filters** (map and list): show every camera, live video only, picture only, fire cameras or offline only; one provider; one or more counties.
 - **Search** (3 or more letters) looks through the picked states in the browser and through every other state on the server (name, road, county or provider; first 50 shown). The server reads every state's files the first time anyone searches, 4 at a time, then only again after the catalog changes.
 - **Big selections:** when more than 2,000 cameras match, only the 2,000 nearest the map view become markers, and they follow the map as it moves.
@@ -16,6 +16,23 @@ Public traffic cameras on the CloudTAK map. Find a camera in the side panel or o
 - **Pictures** open in CloudTAK's video pane (from the panel or the radial play button) and refresh every 15 seconds (the most some providers allow).
 - **Live video** plays through a temporary CloudTAK video lease.
 - The markers are local to each browser: added like CoT received from the server, never archived, so CloudTAK never sends them to TAK Server. They carry a 15-minute stale time and are refreshed every 5 minutes.
+
+## The Sync button
+
+You don't need Sync day to day: the server checks the catalog by itself once a day, whenever someone uses the plugin. Press Sync when the catalog was just republished (for example a provider's links were fixed) and you want the change now, or when the camera list or a camera's links look out of date.
+
+What it does:
+
+1. Asks CloudTAK's server to check the Cam Depot catalog for changes now. The check uses the catalog's ETag, so an unchanged catalog costs one small request.
+2. Drops the camera lists the browser has loaded and fetches them again from the server, so markers, filters, counties and providers match the current catalog.
+3. Shows a note under the filters:
+   - **New camera catalog loaded**: the catalog had changed; state files are fetched fresh as they're picked.
+   - **Camera catalog is up to date**: nothing changed since the last check.
+   - **Checked recently - camera lists reloaded**: the server already checked in the last 10 minutes (one check per 10 minutes for the whole server, to respect TAKWERX's load rules), so only the browser's lists were reloaded.
+
+While it runs, the button shows a spinner and can't be pressed again.
+
+What it doesn't do: it keeps your favorites, filters and picked states (only a picked state that is no longer in the catalog is dropped), and it doesn't reload the plugin itself. After a CloudTAK or plugin update, close every CloudTAK tab and open a new one: an old tab keeps running the old plugin code, and Sync won't fix that. It has nothing to do with the Sync button in takwerx's Cam Depot for ATAK; pressing one doesn't update the other.
 
 ## Where the cameras come from
 
