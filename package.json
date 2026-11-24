@@ -1,6 +1,6 @@
 {
   "name": "cloudtak-plugin-cam-depot",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
-  "description": "Cam Depot for CloudTAK. Installed with install.sh; this file only carries the version shown in the TAK Portal CloudTAK Marketplace and is not installed (keep it equal to plugin/version.ts)."
+  "description": "Cam Depot for CloudTAK. Installed with install.sh; this file only carries the version shown in the TAK Portal CloudTAK Marketplace and is not installed (keep it, and plugin/package.json, equal to plugin/version.ts)."
 }
